@@ -57,3 +57,22 @@ You can also create these doc pages locally:
 % cd doc
 % make html                # creates HTML pages in doc/html
 % make pdf                 # creates Manual.pdf
+
+----------------------------------------------------------------------
+Additional branch-specific information (geom-rbm)
+----------------------------------------------------------------------
+
+This branch extends the following fix of LAMMPS:
+
+  fix brownian/sphere
+
+which implements a geometric integrator for overdamped rotational
+Brownian motion of spheres, based on
+
+  F. Höfling & A. V. Straube,
+  Phys. Rev. Research 7, 043034 (2025).
+  https://doi.org/10.1103/wzdn-29p4
+
+Tests and comparison to theory:
+
+  https://github.com/ArtStrau/lammps-rbm
