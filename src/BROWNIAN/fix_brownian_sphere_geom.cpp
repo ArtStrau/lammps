@@ -110,152 +110,222 @@ void FixBrownianSphereGeom::initial_integrate_templated()
   double **f = atom->f;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
-  double wx, wy, wz;
+
   double **torque = atom->torque;
   double **mu = atom->mu;
+
+  double dx, dy, dz;
+  double wx, wy, wz;
   double mux, muy, muz, mulen;
 
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
-  double dx, dy, dz;
-
   for (int i = 0; i < nlocal; i++) {
-    if (!(mask[i] & groupbit)) continue;
+    if (mask[i] & groupbit) {
 
-    // ---------------- translational + angular-velocity noise (unchanged) ----------------
+      // --- translational + angular-velocity noise ---
 
-    if (Tp_2D) {
-      dz = 0.0;
-      wx = wy = 0.0;
+      if (Tp_2D) {
 
-      if (Tp_UNIFORM) {
-        dx = dt * (g1 * f[i][0] + g2 * (rng->uniform() - 0.5));
-        dy = dt * (g1 * f[i][1] + g2 * (rng->uniform() - 0.5));
-        wz = (rng->uniform() - 0.5) * g4;
-      } else if (Tp_GAUSS) {
-        dx = dt * (g1 * f[i][0] + g2 * rng->gaussian());
-        dy = dt * (g1 * f[i][1] + g2 * rng->gaussian());
-        wz = rng->gaussian() * g4;
+        // 2D: Euler + projection scheme (keep original code and style)
+        dz = 0.0;
+        wx = wy = 0.0;
+
+        if (Tp_UNIFORM) {
+          dx = dt * (g1 * f[i][0] + g2 * (rng->uniform() - 0.5));
+          dy = dt * (g1 * f[i][1] + g2 * (rng->uniform() - 0.5));
+          wz = (rng->uniform() - 0.5) * g4;
+        } else if (Tp_GAUSS) {
+          dx = dt * (g1 * f[i][0] + g2 * rng->gaussian());
+          dy = dt * (g1 * f[i][1] + g2 * rng->gaussian());
+          wz = rng->gaussian() * g4;
+        } else {
+          dx = dt * g1 * f[i][0];
+          dy = dt * g1 * f[i][1];
+          wz = 0.0;
+        }
+
+      } else if (Tp_2Drot) {
+
+        // 3D translation, 2D (planar) rotation about z: wx=wy=0, only wz noise
+        wx = wy = 0.0;
+
+        if (Tp_UNIFORM) {
+          dx = dt * (g1 * f[i][0] + g2 * (rng->uniform() - 0.5));
+          dy = dt * (g1 * f[i][1] + g2 * (rng->uniform() - 0.5));
+          dz = dt * (g1 * f[i][2] + g2 * (rng->uniform() - 0.5));
+          wz = (rng->uniform() - 0.5) * g4;
+        } else if (Tp_GAUSS) {
+          dx = dt * (g1 * f[i][0] + g2 * rng->gaussian());
+          dy = dt * (g1 * f[i][1] + g2 * rng->gaussian());
+          dz = dt * (g1 * f[i][2] + g2 * rng->gaussian());
+          wz = rng->gaussian() * g4;
+        } else {
+          dx = dt * g1 * f[i][0];
+          dy = dt * g1 * f[i][1];
+          dz = dt * g1 * f[i][2];
+          wz = 0.0;
+        }
+
       } else {
-        dx = dt * g1 * f[i][0];
-        dy = dt * g1 * f[i][1];
-        wz = 0.0;
+
+        // full 3D translation + full 3D angular noise
+
+        if (Tp_UNIFORM) {
+          dx = dt * (g1 * f[i][0] + g2 * (rng->uniform() - 0.5));
+          dy = dt * (g1 * f[i][1] + g2 * (rng->uniform() - 0.5));
+          dz = dt * (g1 * f[i][2] + g2 * (rng->uniform() - 0.5));
+          wx = (rng->uniform() - 0.5) * g4;
+          wy = (rng->uniform() - 0.5) * g4;
+          wz = (rng->uniform() - 0.5) * g4;
+        } else if (Tp_GAUSS) {
+          dx = dt * (g1 * f[i][0] + g2 * rng->gaussian());
+          dy = dt * (g1 * f[i][1] + g2 * rng->gaussian());
+          dz = dt * (g1 * f[i][2] + g2 * rng->gaussian());
+          wx = rng->gaussian() * g4;
+          wy = rng->gaussian() * g4;
+          wz = rng->gaussian() * g4;
+        } else {
+          dx = dt * g1 * f[i][0];
+          dy = dt * g1 * f[i][1];
+          dz = dt * g1 * f[i][2];
+          wx = wy = wz = 0.0;
+        }
       }
 
-    } else {
-      // 3D translation, 3D angular noise (Tp_2Drot not treated specially yet)
-      if (Tp_UNIFORM) {
-        dx = dt * (g1 * f[i][0] + g2 * (rng->uniform() - 0.5));
-        dy = dt * (g1 * f[i][1] + g2 * (rng->uniform() - 0.5));
-        dz = dt * (g1 * f[i][2] + g2 * (rng->uniform() - 0.5));
-        wx = (rng->uniform() - 0.5) * g4;
-        wy = (rng->uniform() - 0.5) * g4;
-        wz = (rng->uniform() - 0.5) * g4;
-      } else if (Tp_GAUSS) {
-        dx = dt * (g1 * f[i][0] + g2 * rng->gaussian());
-        dy = dt * (g1 * f[i][1] + g2 * rng->gaussian());
-        dz = dt * (g1 * f[i][2] + g2 * rng->gaussian());
-        wx = rng->gaussian() * g4;
-        wy = rng->gaussian() * g4;
-        wz = rng->gaussian() * g4;
-      } else {
-        dx = dt * g1 * f[i][0];
-        dy = dt * g1 * f[i][1];
-        dz = dt * g1 * f[i][2];
-        wx = wy = wz = 0.0;
-      }
-    }
+      // update positions & velocities as in original fix (FixBrownianSphere)
+      // (velocities are irrelevant for overdamped dynamics)
+      x[i][0] += dx;
+      v[i][0] = dx / dt;
 
-    // update positions & "velocities" as in original fix
-    x[i][0] += dx;
-    v[i][0] = dx / dt;
-    x[i][1] += dy;
-    v[i][1] = dy / dt;
-    x[i][2] += dz;
-    v[i][2] = dz / dt;
+      x[i][1] += dy;
+      v[i][1] = dy / dt;
 
-    // add deterministic torque contribution (same as FixBrownianSphere)
-    wx += g3 * torque[i][0];
-    wy += g3 * torque[i][1];
-    wz += g3 * torque[i][2];
+      x[i][2] += dz;
+      v[i][2] = dz / dt;
 
-    // ---------------- rotational update ----------------
+      // add deterministic torque contribution (same as FixBrownianSphere)
+      wx += g3 * torque[i][0];
+      wy += g3 * torque[i][1];
+      wz += g3 * torque[i][2];
 
-    // dipole length (we keep this fixed)
-    mulen = sqrt(mu[i][0]*mu[i][0] +
-                 mu[i][1]*mu[i][1] +
-                 mu[i][2]*mu[i][2]);
+      // --- rotational update: geometric integrator for 3D angular motion ----
 
-    if (mulen == 0.0) continue;  // undefined orientation
+      // keep dipole length fixed (as in original fix):
+      // store length of dipole as we need to convert it to a unit vector and
+      // then back again
 
-    // unit orientation u at time t
-    mux = mu[i][0] / mulen;
-    muy = mu[i][1] / mulen;
-    muz = mu[i][2] / mulen;
+      mulen = sqrt(mu[i][0]*mu[i][0] + mu[i][1]*mu[i][1] + mu[i][2]*mu[i][2]);
 
-    if (Tp_2D) {
-      // 2D case: keep the original projection scheme for now
+      // avoid division by zero (not tested in original code)
+      if (mulen == 0) continue;
+      // note: mulen = 0 is pathologic (causes division by zero)
+      // two possible alternatives:
+      // 1. assertion (generates exception and stops in Debug mode, not seen in Release)
+      // assert(mulen > 0);  // requires in the header "#include <cassert>"
+      // 2. stop by error:
+      // if (mulen == 0.0)
+      //   error->one(FLERR,"Fix brownian/sphere/geom requires nonzero dipole moment for all atoms in group");
 
-      // un-normalized Euler step u + dt (ω×u)
-      double dux = (wy * muz - wz * muy) * dt;
-      double duy = (wz * mux - wx * muz) * dt;
-      double duz = (wx * muy - wy * mux) * dt;
+      // unit vector at time t
+      mux = mu[i][0] / mulen;
+      muy = mu[i][1] / mulen;
+      muz = mu[i][2] / mulen;
 
-      mu[i][0] = mux + dux;
-      mu[i][1] = muy + duy;
-      mu[i][2] = muz + duz;
+      if (Tp_2D) {
 
-      MathExtra::norm3(mu[i]);
-      mu[i][0] *= mulen;
-      mu[i][1] *= mulen;
-      mu[i][2] *= mulen;
+        // 2D angular motion: Euler + projection scheme (keep original code and style)
 
-    } else {
-      // 3D case: geometric integrator on S^2
+        // un-normalised unit vector at time t + dt
+        mu[i][0] = mux + (wy * muz - wz * muy) * dt;
+        mu[i][1] = muy + (wz * mux - wx * muz) * dt;
+        mu[i][2] = muz + (wx * muy - wy * mux) * dt;
 
-      // angular velocity omega = (wx, wy, wz)
-      // project onto tangent plane: omega_perp = omega - (omega·u) u
-      double dot_ou = wx*mux + wy*muy + wz*muz;
-      double wxp = wx - dot_ou * mux;
-      double wyp = wy - dot_ou * muy;
-      double wzp = wz - dot_ou * muz;
+        // original comment: normalisation introduces the stochastic drift term 
+        // due to changing from Stratonovich to Ito interpretation;
+        // normalization issue is discussed in reference by Höfling & Straube (2025)
+        MathExtra::norm3(mu[i]);
 
-      double wperp2 = wxp*wxp + wyp*wyp + wzp*wzp;
+        // multiply by original magnitude to restore original dipole length
+        mu[i][0] *= mulen;
+        mu[i][1] *= mulen;
+        mu[i][2] *= mulen;
 
-      if (wperp2 == 0.0) {
-        // omega is parallel to u -> no rotation of direction
-        mu[i][0] = mulen * mux;
-        mu[i][1] = mulen * muy;
-        mu[i][2] = mulen * muz;
+      } else if (Tp_2Drot) {
 
-      } else {
-        // rotation angle theta = |omega_perp| * dt
-        double wperp = sqrt(wperp2);
-        double theta = dt * wperp;
+        // planar (2D) rotation: same Euler + projection scheme (wx=wy=0 already)
 
-        // full Rodrigues rotation with axis n = omega_perp / |omega_perp|
-        double nx = wxp / wperp;
-        double ny = wyp / wperp;
-        double nz = wzp / wperp;
+        // un-normalised unit vector at time t + dt
+        mu[i][0] = mux + (wy * muz - wz * muy) * dt;
+        mu[i][1] = muy + (wz * mux - wx * muz) * dt;
+        mu[i][2] = muz + (wx * muy - wy * mux) * dt;
 
-        double c = cos(theta);
-        double s = sin(theta);
-
-        // u × n
-        double cx = muy * nz - muz * ny;
-        double cy = muz * nx - mux * nz;
-        double cz = mux * ny - muy * nx;
-
-        // Eq. (25): u' = cos(theta) u - sin(theta) (u × n)
-        mu[i][0] = c * mux - s * cx;
-        mu[i][1] = c * muy - s * cy;
-        mu[i][2] = c * muz - s * cz;
-
-        // renormalize via MathExtra and restore original magnitude
+        // normalize and restore original dipole length
         MathExtra::norm3(mu[i]);
         mu[i][0] *= mulen;
         mu[i][1] *= mulen;
         mu[i][2] *= mulen;
+
+      } else {
+
+        // 3D angular motion: geometric integrator on S^2 (Hofling & Straube, PRR 7, 043034 (2025))
+        //
+        // Let u = mu/|mu| be the unit orientation at time t.
+        // The effective angular velocity is omega = (wx,wy,wz) (noise + deterministic torque).
+        // Only the component perpendicular to u changes the direction:
+        //
+        //   omega_perp = omega - dot(omega,u) u .
+        //
+        // The finite rotation increment in the paper can be identified as
+        //
+        //   dOmega = omega_perp * dt ,
+        //
+        // with rotation angle theta = |dOmega| = dt*|omega_perp| and axis n = dOmega/|dOmega|.
+        // Since n is perpendicular to u by construction, the Rodrigues formula simplifies to
+        //
+        //   u_new = cos(theta) u - sin(theta) (u x n) .
+        //
+        // Finally we renormalize (roundoff) and restore the original dipole magnitude |mu|.
+
+        // omega_perp = omega - (omega·u) u
+        // unit vector (u) at time t is given by (mux, muy, muz)
+        double dot_wu = wx*mux + wy*muy + wz*muz; // dot product (omega·u)
+        double wxp = wx - dot_wu * mux;
+        double wyp = wy - dot_wu * muy;
+        double wzp = wz - dot_wu * muz;
+
+        // wperp = |omega_perp|  =>  theta = dt*wperp = |ΔΩ|
+        double wperp = sqrt(wxp*wxp + wyp*wyp + wzp*wzp);
+
+        // note: if omega_perp = 0, exact map leaves u unchanged (do nothing)
+        if (wperp > 0) {
+          double theta = dt * wperp;
+
+          // axis n = omega_perp / |omega_perp|
+          double nx = wxp / wperp;
+          double ny = wyp / wperp;
+          double nz = wzp / wperp;
+
+          double c = cos(theta);
+          double s = sin(theta);
+
+          // u × n
+          double cx = muy * nz - muz * ny;
+          double cy = muz * nx - mux * nz;
+          double cz = mux * ny - muy * nx;
+
+          // by construction, n is perpendicular to u, (n·u)=0 and
+          // u_new = cos(theta) u - sin(theta) (u × n)
+          mu[i][0] = c * mux - s * cx;
+          mu[i][1] = c * muy - s * cy;
+          mu[i][2] = c * muz - s * cz;
+
+          // remove roundoff drift and restore original dipole magnitude
+          MathExtra::norm3(mu[i]);
+          mu[i][0] *= mulen;
+          mu[i][1] *= mulen;
+          mu[i][2] *= mulen;
+        }
       }
     }
   }
