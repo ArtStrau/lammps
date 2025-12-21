@@ -25,6 +25,7 @@ class FixBrownianBase : public Fix {
   void init() override;
   int setmask() override;
   void reset_dt() override;
+  enum RotStyle { ROT_PROJECTION, ROT_GEOMETRIC };
 
  protected:
   int seed;                  // RNG seed
@@ -35,6 +36,7 @@ class FixBrownianBase : public Fix {
   int gamma_r_eigen_flag;    // 0/1 if anisotropic rotational damping is unset/set
   int rot_temp_flag;         // 0/1 if rotational temperature is unset/set
   int planar_rot_flag;       // 0/1 if rotation is constrained to 2D (xy) plane
+  RotStyle rot_style;        // rotational integrator: projection or geometric
 
   double gamma_t, gamma_r;    // translational and rotational (isotropic) damping params
   double *gamma_t_inv;        // anisotropic damping parameter eigenvalues
