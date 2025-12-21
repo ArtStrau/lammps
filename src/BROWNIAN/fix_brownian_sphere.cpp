@@ -59,30 +59,80 @@ void FixBrownianSphere::init()
 
 void FixBrownianSphere::initial_integrate(int /*vflag */)
 {
-  if (domain->dimension == 2) {
-    if (!noise_flag) {
-      initial_integrate_templated<0, 0, 0, 1, 0>();
-    } else if (gaussian_noise_flag) {
-      initial_integrate_templated<0, 0, 1, 1, 0>();
+  if (rot_style == ROT_GEOMETRIC) {
+
+    if (domain->dimension == 2) {
+
+      // 2D translation + 2D rotation:
+      // Fallback to projection integrator (Tp_ROTGEOM = 0)
+      if (!noise_flag) {
+        initial_integrate_templated<0, 0, 0, 1, 0>();
+      } else if (gaussian_noise_flag) {
+        initial_integrate_templated<0, 0, 1, 1, 0>();
+      } else {
+        initial_integrate_templated<0, 1, 0, 1, 0>();
+      }
+
+    } else if (planar_rot_flag) {
+
+      // 3D translation + planar_rotation:
+      // Fallback to projection integrator (Tp_ROTGEOM = 0)
+      if (!noise_flag) {
+        initial_integrate_templated<0, 0, 0, 0, 1>();
+      } else if (gaussian_noise_flag) {
+        initial_integrate_templated<0, 0, 1, 0, 1>();
+      } else {
+        initial_integrate_templated<0, 1, 0, 0, 1>();
+      }
+
     } else {
-      initial_integrate_templated<0, 1, 0, 1, 0>();
+
+      // Full 3D: 3D translation + 3D rotation:
+      // Geometric integrator (Tp_ROTGEOM = 1)
+      if (!noise_flag) {
+        initial_integrate_templated<1, 0, 0, 0, 0>();
+      } else if (gaussian_noise_flag) {
+        initial_integrate_templated<1, 0, 1, 0, 0>();
+      } else {
+        initial_integrate_templated<1, 1, 0, 0, 0>();
+      }
     }
-  } else if (planar_rot_flag) {
-    if (!noise_flag) {
-      initial_integrate_templated<0, 0, 0, 0, 1>();
-    } else if (gaussian_noise_flag) {
-      initial_integrate_templated<0, 0, 1, 0, 1>();
-    } else {
-      initial_integrate_templated<0, 1, 0, 0, 1>();
-    }
+
   } else {
-    if (!noise_flag) {
-      initial_integrate_templated<0, 0, 0, 0, 0>();
-    } else if (gaussian_noise_flag) {
-      initial_integrate_templated<0, 0, 1, 0, 0>();
+
+    // Projection integrator (original behavior)
+    if (domain->dimension == 2) {
+
+      if (!noise_flag) {
+        initial_integrate_templated<0, 0, 0, 1, 0>();
+      } else if (gaussian_noise_flag) {
+        initial_integrate_templated<0, 0, 1, 1, 0>();
+      } else {
+        initial_integrate_templated<0, 1, 0, 1, 0>();
+      }
+
+    } else if (planar_rot_flag) {
+
+      if (!noise_flag) {
+        initial_integrate_templated<0, 0, 0, 0, 1>();
+      } else if (gaussian_noise_flag) {
+        initial_integrate_templated<0, 0, 1, 0, 1>();
+      } else {
+        initial_integrate_templated<0, 1, 0, 0, 1>();
+      }
+
     } else {
-      initial_integrate_templated<0, 1, 0, 0, 0>();
+
+      if (!noise_flag) {
+        initial_integrate_templated<0, 0, 0, 0, 0>();
+      } else if (gaussian_noise_flag) {
+        initial_integrate_templated<0, 0, 1, 0, 0>();
+      } else {
+        initial_integrate_templated<0, 1, 0, 0, 0>();
+      }
+
     }
+
   }
 }
 
