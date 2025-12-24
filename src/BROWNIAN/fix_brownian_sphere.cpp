@@ -26,6 +26,7 @@
 #include "random_mars.h"
 
 #include <cmath>
+#include <cassert>
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -232,24 +233,139 @@ void FixBrownianSphere::initial_integrate_templated()
 
       mulen = sqrt(mu[i][0] * mu[i][0] + mu[i][1] * mu[i][1] + mu[i][2] * mu[i][2]);
 
+      // assertion generates exception and stops in Debug mode, not seen in Release
+      assert(mulen > 0);
+
       // unit vector at time t
       mux = mu[i][0] / mulen;
       muy = mu[i][1] / mulen;
       muz = mu[i][2] / mulen;
 
-      // un-normalised unit vector at time t + dt
-      mu[i][0] = mux + (wy * muz - wz * muy) * dt;
-      mu[i][1] = muy + (wz * mux - wx * muz) * dt;
-      mu[i][2] = muz + (wx * muy - wy * mux) * dt;
+      if (Tp_ROTGEOM) {
 
-      // normalisation introduces the stochastic drift term due to changing from
-      // Stratonovich to Ito interpretation
-      MathExtra::norm3(mu[i]);
+        // --- rotational update: geometric integrator for 3D angular motion ----
+        // For Tp_2D and Tp_2Drot, we currently use two separate projection placeholders
 
-      // multiply by original magnitude to obtain dipole of same length
-      mu[i][0] = mu[i][0] * mulen;
-      mu[i][1] = mu[i][1] * mulen;
-      mu[i][2] = mu[i][2] * mulen;
+        if (Tp_2D) {
+
+          // 2D case: projection integrator placeholder
+
+          // un-normalised unit vector at time t + dt
+          mu[i][0] = mux + (wy * muz - wz * muy) * dt;
+          mu[i][1] = muy + (wz * mux - wx * muz) * dt;
+          mu[i][2] = muz + (wx * muy - wy * mux) * dt;
+
+          // normalize unit vector
+          MathExtra::norm3(mu[i]);
+
+          // multiply by original magnitude to obtain dipole of same length
+          mu[i][0] = mu[i][0] * mulen;
+          mu[i][1] = mu[i][1] * mulen;
+          mu[i][2] = mu[i][2] * mulen;
+
+        } else if (Tp_2Drot) {
+
+          // planar (2D) rotation case: projection integrator placeholder
+
+          // un-normalised unit vector at time t + dt
+          mu[i][0] = mux + (wy * muz - wz * muy) * dt;
+          mu[i][1] = muy + (wz * mux - wx * muz) * dt;
+          mu[i][2] = muz + (wx * muy - wy * mux) * dt;
+
+          // normalize unit vector
+          MathExtra::norm3(mu[i]);
+
+          // multiply by original magnitude to obtain dipole of same length
+          mu[i][0] = mu[i][0] * mulen;
+          mu[i][1] = mu[i][1] * mulen;
+          mu[i][2] = mu[i][2] * mulen;
+
+        } else {
+
+          // full 3D: geometric integrator on S^2 [Hoefling & Straube, PRR 7, 043034 (2025)]
+
+          // Let u = mu/|mu| be the unit orientation at time t.
+          // The effective angular velocity is omega = (wx, wy, wz) (noise + deterministic torque).
+          // Only the component perpendicular to u changes the direction:
+          //
+          //   omega_perp = omega - dot(omega, u) u.
+          //
+          // The finite rotation increment in the paper can be identified as
+          //
+          //   dOmega = omega_perp * dt,
+          //
+          // with rotation angle theta = |dOmega| = dt*|omega_perp| and axis n = dOmega/|dOmega|.
+          // Since n is perpendicular to u by construction, the Rodrigues formula simplifies to
+          //
+          //   u_new = cos(theta) u - sin(theta) (u x n).
+          //
+          // Finally we renormalize (roundoff) and restore the original dipole magnitude |mu|.
+
+          // dot product dot(omega, u), unit vector (u) at time t is given by (mux, muy, muz)
+          double dot_wu = wx*mux + wy*muy + wz*muz; 
+
+          // omega_perp is given by (wxp, wyp, wzp)
+          double wxp = wx - dot_wu * mux;
+          double wyp = wy - dot_wu * muy;
+          double wzp = wz - dot_wu * muz;
+
+          // wperp = |omega_perp| and hence theta = dt * wperp = |dOmega|
+          double wperp = sqrt(wxp*wxp + wyp*wyp + wzp*wzp);
+
+          // note: if omega_perp = 0, exact map leaves u unchanged (do nothing)
+          if (wperp > 0) {
+
+            // rotation angle theta = |omega_perp| * dt = |dOmega|
+            double theta = dt * wperp;
+
+            // axis n = omega_perp / |omega_perp|
+            double nx = wxp / wperp;
+            double ny = wyp / wperp;
+            double nz = wzp / wperp;
+
+            double c = cos(theta);
+            double s = sin(theta);
+
+            // cross-product u × n = (cx, cy, cz)
+            double cx = muy * nz - muz * ny;
+            double cy = muz * nx - mux * nz;
+            double cz = mux * ny - muy * nx;
+
+            // by construction, n is perpendicular to u, dot(n, u) = 0 and
+            // u_new = cos(theta) u - sin(theta) (u × n)
+            mu[i][0] = c * mux - s * cx;
+            mu[i][1] = c * muy - s * cy;
+            mu[i][2] = c * muz - s * cz;
+
+            // remove roundoff drift and restore original dipole magnitude
+            MathExtra::norm3(mu[i]);
+            mu[i][0] *= mulen;
+            mu[i][1] *= mulen;
+            mu[i][2] *= mulen;
+          }
+
+        }
+
+      } else {
+
+        // --- rotational update: projection integrator (original) ----
+
+        // un-normalised unit vector at time t + dt
+        mu[i][0] = mux + (wy * muz - wz * muy) * dt;
+        mu[i][1] = muy + (wz * mux - wx * muz) * dt;
+        mu[i][2] = muz + (wx * muy - wy * mux) * dt;
+
+        // normalisation introduces the stochastic drift term due to changing from
+        // Stratonovich to Ito interpretation
+        MathExtra::norm3(mu[i]);
+
+        // multiply by original magnitude to obtain dipole of same length
+        mu[i][0] = mu[i][0] * mulen;
+        mu[i][1] = mu[i][1] * mulen;
+        mu[i][2] = mu[i][2] * mulen;
+
+      }
+
     }
   }
 }
