@@ -231,15 +231,17 @@ void FixBrownianSphere::initial_integrate_templated()
       // store length of dipole as we need to convert it to a unit vector and
       // then back again
 
-      mulen = sqrt(mu[i][0] * mu[i][0] + mu[i][1] * mu[i][1] + mu[i][2] * mu[i][2]);
+      mulen = MathExtra::len3(mu[i]);
 
       // assertion generates exception and stops in Debug mode, not seen in Release
       assert(mulen > 0);
 
-      // unit vector at time t
-      mux = mu[i][0] / mulen;
-      muy = mu[i][1] / mulen;
-      muz = mu[i][2] / mulen;
+      // unit vector u = mu / |mu| at time t
+      double u[3];
+      MathExtra::scale3(1.0 / mulen, mu[i], u);
+
+      // effective angular velocity omega is denoted as w = (wx, wy, wz) (deterministic torque + noise)
+      double w[3] = {wx, wy, wz};
 
       if (Tp_ROTGEOM) {
 
@@ -250,98 +252,81 @@ void FixBrownianSphere::initial_integrate_templated()
 
           // 2D case: projection integrator placeholder
 
-          // un-normalised unit vector at time t + dt
-          mu[i][0] = mux + (wy * muz - wz * muy) * dt;
-          mu[i][1] = muy + (wz * mux - wx * muz) * dt;
-          mu[i][2] = muz + (wx * muy - wy * mux) * dt;
+          // cross-product wxu = w × u
+          double wxu[3];
+          MathExtra::cross3(w, u, wxu);
 
-          // normalize unit vector
-          MathExtra::norm3(mu[i]);
+          // un-normalized unit vector at time t + dt: u <- u + dt (w × u)
+          MathExtra::scaleadd3(dt, wxu, u, u);
 
-          // multiply by original magnitude to obtain dipole of same length
-          mu[i][0] = mu[i][0] * mulen;
-          mu[i][1] = mu[i][1] * mulen;
-          mu[i][2] = mu[i][2] * mulen;
+          // normalize to |u| = 1 and rescale to |mu| = mulen
+          MathExtra::snormalize3(mulen, u, mu[i]);
 
         } else if (Tp_2Drot) {
 
           // planar (2D) rotation case: projection integrator placeholder
 
-          // un-normalised unit vector at time t + dt
-          mu[i][0] = mux + (wy * muz - wz * muy) * dt;
-          mu[i][1] = muy + (wz * mux - wx * muz) * dt;
-          mu[i][2] = muz + (wx * muy - wy * mux) * dt;
+          // cross-product wxu = w × u
+          double wxu[3];
+          MathExtra::cross3(w, u, wxu);
 
-          // normalize unit vector
-          MathExtra::norm3(mu[i]);
+          // un-normalized unit vector at time t + dt: u <- u + dt (w × u)
+          MathExtra::scaleadd3(dt, wxu, u, u);
 
-          // multiply by original magnitude to obtain dipole of same length
-          mu[i][0] = mu[i][0] * mulen;
-          mu[i][1] = mu[i][1] * mulen;
-          mu[i][2] = mu[i][2] * mulen;
+          // normalize to |u| = 1 and rescale to |mu| = mulen
+          MathExtra::snormalize3(mulen, u, mu[i]);
 
         } else {
 
-          // full 3D: geometric integrator on S^2 [Hoefling & Straube, PRR 7, 043034 (2025)]
+          // ----------------------------------------------------------------------
+          // 3D case, rotational update: geometric integrator for overdamped rotational Brownian motion
+          // Reference: F. Hoefling & A. V. Straube, Phys. Rev. Research 7, 043034 (2025); DOI: 10.1103/wzdn-29p4
+          //
+          // Paper -> code notation:
+          //   u            : unit orientation, u = mu / |mu|
+          //   omega        : effective angular velocity (noise + deterministic torque) -> w
+          //   omega_perp   : omega - dot(omega, u) u  (tangent component)              -> wperp
+          //   dOmega       : omega_perp * dt                                           -> (dt*wperp)
+          //   theta        : |dOmega| = dt * |omega_perp|                              -> theta
+          //   n            : dOmega / |dOmega| = omega_perp / |omega_perp|             -> n
+          //
+          // Update (Rodrigues; simplified since dot(n, u) = 0 by construction):
+          //   u_new = cos(theta) u - sin(theta) (u x n)
+          // Renormalize u_new to suppress roundoff drift, then restore |mu|.
+          // ----------------------------------------------------------------------
 
-          // Let u = mu/|mu| be the unit orientation at time t.
-          // The effective angular velocity is omega = (wx, wy, wz) (noise + deterministic torque).
-          // Only the component perpendicular to u changes the direction:
-          //
-          //   omega_perp = omega - dot(omega, u) u.
-          //
-          // The finite rotation increment in the paper can be identified as
-          //
-          //   dOmega = omega_perp * dt,
-          //
-          // with rotation angle theta = |dOmega| = dt*|omega_perp| and axis n = dOmega/|dOmega|.
-          // Since n is perpendicular to u by construction, the Rodrigues formula simplifies to
-          //
-          //   u_new = cos(theta) u - sin(theta) (u x n).
-          //
-          // Finally we renormalize (roundoff) and restore the original dipole magnitude |mu|.
+          // dot product dot(omega, u) = dot(w, u)
+          double dot_wu = MathExtra::dot3(w, u);
 
-          // dot product dot(omega, u), unit vector (u) at time t is given by (mux, muy, muz)
-          double dot_wu = wx*mux + wy*muy + wz*muz; 
+          // omega_perp = omega - dot(omega, u) u
+          double wperp[3];
+          MathExtra::scaleadd3(-dot_wu, u, w, wperp);
 
-          // omega_perp is given by (wxp, wyp, wzp)
-          double wxp = wx - dot_wu * mux;
-          double wyp = wy - dot_wu * muy;
-          double wzp = wz - dot_wu * muz;
-
-          // wperp = |omega_perp| and hence theta = dt * wperp = |dOmega|
-          double wperp = sqrt(wxp*wxp + wyp*wyp + wzp*wzp);
+          // wperplen = |omega_perp| = |wperp|
+          double wperplen = MathExtra::len3(wperp);
 
           // note: if omega_perp = 0, exact map leaves u unchanged (do nothing)
-          if (wperp > 0) {
+          if (wperplen > 0) {
 
             // rotation angle theta = |omega_perp| * dt = |dOmega|
-            double theta = dt * wperp;
-
-            // axis n = omega_perp / |omega_perp|
-            double nx = wxp / wperp;
-            double ny = wyp / wperp;
-            double nz = wzp / wperp;
+            double theta = dt * wperplen;
 
             double c = cos(theta);
             double s = sin(theta);
 
-            // cross-product u × n = (cx, cy, cz)
-            double cx = muy * nz - muz * ny;
-            double cy = muz * nx - mux * nz;
-            double cz = mux * ny - muy * nx;
+            // axis n = omega_perp / |omega_perp|
+            double n[3];
+            MathExtra::scale3(1.0 / wperplen, wperp, n);
 
-            // by construction, n is perpendicular to u, dot(n, u) = 0 and
-            // u_new = cos(theta) u - sin(theta) (u × n)
-            mu[i][0] = c * mux - s * cx;
-            mu[i][1] = c * muy - s * cy;
-            mu[i][2] = c * muz - s * cz;
+            // cross-product u × n 
+            double uxn[3];
+            MathExtra::cross3(u, n, uxn);
+
+            // new rotated orientation u <- cos(theta) u - sin(theta) (u × n)
+            MathExtra::scaleadd3(c, u, -s, uxn, u);
 
             // remove roundoff drift and restore original dipole magnitude
-            MathExtra::norm3(mu[i]);
-            mu[i][0] *= mulen;
-            mu[i][1] *= mulen;
-            mu[i][2] *= mulen;
+            MathExtra::snormalize3(mulen, u, mu[i]);
           }
 
         }
@@ -350,19 +335,17 @@ void FixBrownianSphere::initial_integrate_templated()
 
         // --- rotational update: projection integrator (original) ----
 
-        // un-normalised unit vector at time t + dt
-        mu[i][0] = mux + (wy * muz - wz * muy) * dt;
-        mu[i][1] = muy + (wz * mux - wx * muz) * dt;
-        mu[i][2] = muz + (wx * muy - wy * mux) * dt;
+        // cross-product wxu = w × u
+        double wxu[3];
+        MathExtra::cross3(w, u, wxu);
 
-        // normalisation introduces the stochastic drift term due to changing from
-        // Stratonovich to Ito interpretation
-        MathExtra::norm3(mu[i]);
+        // un-normalized unit vector at time t + dt: u <- u + dt (w × u)
+        MathExtra::scaleadd3(dt, wxu, u, u);
 
-        // multiply by original magnitude to obtain dipole of same length
-        mu[i][0] = mu[i][0] * mulen;
-        mu[i][1] = mu[i][1] * mulen;
-        mu[i][2] = mu[i][2] * mulen;
+        // normalize to |u| = 1 and rescale to |mu| = mulen
+        //   original comment: "normalisation introduces the stochastic drift term due to changing from
+        //   Stratonovich to Ito interpretation" -- the issue is clarified in the reference
+        MathExtra::snormalize3(mulen, u, mu[i]);
 
       }
 
